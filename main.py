@@ -30,7 +30,7 @@ pyautogui.FAILSAFE = False
 class Matrixassistant:
     def __init__(self, root):
         self.root = root
-        self.root.title("毕业基质助手 (多屏适配全纠错版)")
+        self.root.title("毕业基质自动识别助手beta v0.1")
         self.root.geometry("540x820")
         self.root.attributes("-topmost", True)
 
@@ -261,9 +261,9 @@ class Matrixassistant:
                                 c1, c2, c3 = weapon.get('毕业词条1', ''), weapon.get('毕业词条2', ''), weapon.get(
                                     '毕业词条3', '')
                                 if all(self.fuzzy_match(cx, full_txt) for cx in [c1, c2, c3]):
-                                    self.gui_log("✨ 发现毕业属性！", "gold")
+                                    self.gui_log("检测到毕业基质！", "gold")
                                     if self.is_already_locked(sct, lock, cur_win):
-                                        self.gui_log("已锁定，跳过", "red")
+                                        self.gui_log("该基质已锁定，跳过点击", "red")
                                     else:
                                         pydirectinput.click(int(cur_win[0] + lock[0]), int(cur_win[1] + lock[1]))
                                         time.sleep(0.4)
@@ -273,7 +273,7 @@ class Matrixassistant:
                         else:
                             self.gui_log("-> 未读到词条")
                     else:
-                        self.gui_log(f"非金色，停止扫描")
+                        self.gui_log(f"非金色基质，停止扫描")
                         self.running = False;
                         break
 
