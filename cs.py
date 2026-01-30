@@ -406,7 +406,15 @@ class Matrixassistant:
         return True
 
     def is_gold(self, cell_bgr):
-        return True
+        try:
+            h, w = cell_bgr.shape[:2]
+            strip = cell_bgr[int(h * 0.90):, :]
+            hsv = cv2.cvtColor(strip, cv2.COLOR_BGR2HSV)
+            lower_gold = np.array([18, 150, 150])
+            upper_gold = np.array([30, 255, 255])
+            mask = cv2.inRange(hsv, lower_gold, upper_gold)
+            return (np.sum(mask > 0) / mask.size) > 0.04
+        except: return False
 
     def run_task(self):
         roi, grid, lock = self.data["roi"], self.data["grid"], self.data["lock"]
