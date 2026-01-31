@@ -28,7 +28,6 @@ import win32con
 
 # --- PyInstaller 路径适配函数 ---
 def resource_path(relative_path):
-    """ 获取资源绝对路径，适配 PyInstaller 的临时文件夹机制 """
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
@@ -52,7 +51,6 @@ def run_as_admin():
 
 
 try:
-    # 强制开启 Per-Monitor DPI Aware，确保所有坐标单位均为物理像素
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except:
     try:
@@ -64,7 +62,6 @@ pydirectinput.PAUSE = 0.01
 pyautogui.FAILSAFE = False
 
 
-# --- 修复版：独立置顶引导蒙版 ---
 class SelectionCanvas:
     def __init__(self, root, img_name, callback):
         self.root = root
@@ -72,7 +69,6 @@ class SelectionCanvas:
         self.mon = mss.mss().monitors[0]
         self.primary_mon = mss.mss().monitors[1] if len(mss.mss().monitors) > 1 else self.mon
 
-        # 1. 创建全屏蒙版
         self.top = tk.Toplevel(root)
         self.top.attributes("-alpha", 0.6, "-topmost", True)
         self.top.geometry(f"{self.mon['width']}x{self.mon['height']}+{self.mon['left']}+{self.mon['top']}")
@@ -81,7 +77,6 @@ class SelectionCanvas:
         self.canvas = tk.Canvas(self.top, cursor="crosshair", bg="white", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
-        # 2. 创建独立教程图
         self.img_win = None
         img_path = resource_path(os.path.join("img", img_name))
         if os.path.exists(img_path):
@@ -99,8 +94,6 @@ class SelectionCanvas:
             tk.Label(self.img_win, image=self.tk_img, bg="white", relief="solid", bd=2).pack()
             self.img_win.update_idletasks()
             self.root.after(50, lambda: self.img_win.lift() if self.img_win else None)
-
-            # --- 需求实现：3秒后自动销毁教程图 ---
             self.root.after(3000, self.safe_destroy_img)
 
         self.start_x = self.start_y = self.rect = None
@@ -150,27 +143,18 @@ class Matrixassistant:
 
     def load_weapon_csv(self):
         ws = []
-        # 1. 首先检测文件是否存在
         if not os.path.exists(self.csv_file):
-            # 如果不存在，弹出警告框
-            messagebox.showwarning("缺少必要文件",
-                                   f"未检测到武器文件：{self.csv_file}\n请解压后运行，确保该文件位于程序根目录下，否则无法识别武器词条！")
-            return ws  # 返回空列表防止后续代码报错
-
-        # 2. 如果存在，正常读取
+            messagebox.showwarning("缺少必要文件", f"未检测到武器文件：{self.csv_file}\n请确保文件在程序根目录下！")
+            return ws
         try:
             with open(self.csv_file, 'r', encoding='utf-8-sig') as f:
                 r = csv.DictReader(f)
-                # 简单的格式校验：检查是否有“武器”这一列
                 if r.fieldnames and "武器" in r.fieldnames:
-                    for row in r:
-                        ws.append({k.strip(): v.strip() for k, v in row.items() if k})
+                    for row in r: ws.append({k.strip(): v.strip() for k, v in row.items() if k})
                 else:
-                    messagebox.showerror("文件格式错误",
-                                         f"{self.csv_file} 格式不正确，请确保包含“武器、星级、毕业词条”等表头。")
+                    messagebox.showerror("文件格式错误", "CSV格式不正确")
         except Exception as e:
-            messagebox.showerror("读取失败", f"读取CSV时发生错误: {e}")
-
+            messagebox.showerror("读取失败", str(e))
         return ws
 
     def update_config_status(self):
@@ -196,22 +180,16 @@ class Matrixassistant:
 
     def set_grid(self):
         def p3(rx, ry):
-            gx, gy = self.get_game_rect()
+            gx, gy = self.get_game_rect();
             p11 = self.data["grid"]["p11"]
             self.data["grid"].update(
                 {"rx": p11[0] - gx, "ry": p11[1] - gy, "rdx": self.data["grid"]["p12"][0] - p11[0], "rdy": ry - p11[1]})
             self.save_config()
 
-        # --- 需求实现：后续点击不再传入图片名称 ---
-        def p2(rx, ry):
-            self.data["grid"]["p12"] = (rx, ry)
-            self.get_click("点：(2, 1)中心", p3, None)
+        def p2(rx, ry): self.data["grid"]["p12"] = (rx, ry); self.get_click("点：(2, 1)中心", p3, None)
 
-        def p1(rx, ry):
-            self.data["grid"] = {"p11": (rx, ry)}
-            self.get_click("点：(1, 2)中心", p2, None)
+        def p1(rx, ry): self.data["grid"] = {"p11": (rx, ry)}; self.get_click("点：(1, 2)中心", p2, None)
 
-        # 仅在第一次调用时显示图片
         self.get_click("点：(1, 1)中心", p1, "guide_grid.png")
 
     def set_lock(self):
@@ -219,29 +197,151 @@ class Matrixassistant:
             self.data.update({"lock": (rx - self.get_game_rect()[0], ry - self.get_game_rect()[1])}),
             self.save_config()], "guide_lock.png")
 
-    def add_weapon_popup(self):
-        p = tk.Toplevel(self.root);
-        p.title("添加武器数据");
-        p.geometry("320x450");
-        p.attributes("-topmost", True)
-        fields = [("武器名称:", "name"), ("星级 (5或6):", "star"), ("毕业词条1:", "c1"), ("毕业词条2:", "c2"),
-                  ("毕业词条3:", "c3")]
-        ents = {k: tk.Entry(p, width=30) for _, k in fields}
-        for (lbl, k) in fields: tk.Label(p, text=lbl, font=("微软雅黑", 9)).pack(pady=(10, 2)); ents[k].pack()
+    def edit_weapon_popup(self):
+        editor_win = tk.Toplevel(self.root)
+        editor_win.title("武器数据编辑器")
+        editor_win.geometry("900x650")
+        editor_win.minsize(1150, 500)
+        editor_win.attributes("-topmost", True)
 
-        def confirm():
-            n, s = ents["name"].get().strip(), ents["star"].get().strip()
-            c = [ents[x].get().strip() for x in ["c1", "c2", "c3"]]
-            if not n or s not in ["5", "6"] or not c[0]: messagebox.showwarning("提示", "只能填入数字5或6"); return
-            new = {"武器": n, "星级": f"{s}星", "毕业词条1": c[0], "毕业词条2": c[1], "毕业词条3": c[2]}
-            with open(self.csv_file, 'a', encoding='utf-8-sig', newline='') as f:
-                csv.DictWriter(f, fieldnames=["武器", "星级", "毕业词条1", "毕业词条2", "毕业词条3"]).writerow(new)
-            self.weapon_list.append(new);
-            messagebox.showinfo("成功", f"武器 {n} 已添加");
-            p.destroy()
+        # --- 顶部固定区：说明与搜索 ---
+        top_bar = tk.Frame(editor_win)
+        top_bar.pack(fill="x", padx=10, pady=5)
 
-        tk.Button(p, text="确认添加", command=confirm, bg="#2E7D32", fg="white", font=("微软雅黑", 10, "bold"),
-                  width=20).pack(pady=25)
+        # 搜索框区域
+        search_frame = tk.Frame(top_bar, pady=10)
+        search_frame.pack(side="bottom", fill="x")
+        tk.Label(search_frame, text="搜索武器:", font=("微软雅黑", 10, "bold")).pack(side="left", padx=(0, 5))
+
+        search_var = tk.StringVar()
+        search_ent = tk.Entry(search_frame, textvariable=search_var, font=("微软雅黑", 10), width=30)
+        search_ent.pack(side="left")
+        tk.Label(search_frame, text="(支持模糊匹配)", fg="#999", font=("微软雅黑", 8)).pack(side="left", padx=5)
+
+        # --- 滚动区域 ---
+        container = tk.Frame(editor_win)
+        container.pack(fill="both", expand=True, padx=10, pady=5)
+
+        canvas = tk.Canvas(container, highlightthickness=0)
+        scrollbar = tk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
+
+        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas_frame = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        def configure_canvas(event):
+            if scrollable_frame.winfo_reqwidth() < event.width:
+                canvas.itemconfigure(canvas_frame, width=event.width)
+
+        canvas.bind("<Configure>", configure_canvas)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # 滚轮支持
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        canvas.bind('<Enter>', lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
+        canvas.bind('<Leave>', lambda e: canvas.unbind_all("<MouseWheel>"))
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # 表头
+        headers = ["武器名称", "星级", "毕业词条1", "毕业词条2", "毕业词条3", "管理操作"]
+        header_widths = [20, 10, 18, 18, 18, 10]
+        for i, h in enumerate(headers):
+            tk.Label(scrollable_frame, text=h, font=("微软雅黑", 10, "bold"), width=header_widths[i]).grid(row=0,
+                                                                                                           column=i,
+                                                                                                           padx=2,
+                                                                                                           pady=5)
+
+        self.table_rows = []
+
+        # --- 搜索过滤逻辑 ---
+        def do_search(*args):
+            query = search_var.get().strip().lower()
+            for row_list in self.table_rows:
+                # row_list[0] 是武器名称的 Entry
+                weapon_name = row_list[0].get().strip().lower()
+                # 找到该行所有的组件（Entrys + Button）
+                # 这里我们假设一行有 6 个组件（5个Entry + 1个删除按钮）
+                # 在 grid 布局中，隐藏一行可以通过对该行所有组件执行 grid_remove
+                if query in weapon_name:
+                    # 显示：重新 grid 出来
+                    for i, widget in enumerate(row_list):
+                        widget.grid()
+                    # 别忘了最后一列的删除按钮（如果有保存的话）
+                else:
+                    # 隐藏
+                    for widget in row_list:
+                        widget.grid_remove()
+
+        search_var.trace_add("write", do_search)  # 绑定输入监听
+
+        def add_row_ui(data=None):
+            row_idx = len(self.table_rows) + 1
+            row_widgets = []  # 存储该行所有控件
+            default_vals = data if data else {"武器": "", "星级": "", "毕业词条1": "", "毕业词条2": "",
+                                              "毕业词条3": ""}
+
+            fields = ["武器", "星级", "毕业词条1", "毕业词条2", "毕业词条3"]
+            widths = [18, 8, 16, 16, 16]
+            for col, field in enumerate(fields):
+                e = tk.Entry(scrollable_frame, width=widths[col], font=("微软雅黑", 10))
+                e.insert(0, default_vals.get(field, ""))
+                e.grid(row=row_idx, column=col, padx=5, pady=2, sticky="ew")
+                row_widgets.append(e)
+
+            # 删除按钮
+            btn_del = tk.Button(scrollable_frame, text="删除", fg="white", bg="#d32f2f",
+                                command=lambda r=row_widgets: remove_row(r))
+            btn_del.grid(row=row_idx, column=5, padx=10, pady=2)
+            row_widgets.append(btn_del)  # 将按钮也存进去，方便搜索时一起隐藏
+
+            self.table_rows.append(row_widgets)
+
+        def remove_row(row_widgets):
+            for w in row_widgets: w.destroy()
+            if row_widgets in self.table_rows:
+                self.table_rows.remove(row_widgets)
+
+        # 加载数据
+        for weapon in self.weapon_list:
+            add_row_ui(weapon)
+
+        # 底部按钮区
+        footer = tk.Frame(editor_win)
+        footer.pack(fill="x", pady=15)
+
+        def save_all():
+            new_data = []
+            for row in self.table_rows:
+                try:
+                    if not row[0].winfo_exists(): continue
+                    # row 包含了 5个 Entry 和 1个 Button，我们只取前5个
+                    vals = [row[i].get().strip() for i in range(5)]
+                    if not vals[0]: continue
+                    new_data.append({
+                        "武器": vals[0], "星级": vals[1] if "星" in vals[1] else f"{vals[1]}星",
+                        "毕业词条1": vals[2], "毕业词条2": vals[3], "毕业词条3": vals[4]
+                    })
+                except:
+                    continue
+
+            try:
+                with open(self.csv_file, 'w', encoding='utf-8-sig', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=["武器", "星级", "毕业词条1", "毕业词条2", "毕业词条3"])
+                    writer.writeheader()
+                    writer.writerows(new_data)
+                self.weapon_list = new_data
+                messagebox.showinfo("成功", "数据已保存！")
+                editor_win.destroy()
+            except Exception as e:
+                messagebox.showerror("保存失败", str(e))
+
+        tk.Button(footer, text="+ 新增一行", command=add_row_ui, bg="#f0f0f0", width=15).pack(side="left", padx=30)
+        tk.Button(footer, text="💾 保存所有修改", command=save_all, bg="#2E7D32", fg="white",
+                  font=("微软雅黑", 10, "bold"), width=20).pack(side="right", padx=30)
 
     def add_correction_popup(self):
         p = tk.Toplevel(self.root);
@@ -291,8 +391,7 @@ class Matrixassistant:
             search_scope = window_img[max(0, ly - 20):ly + 20, max(0, lx - 20):lx + 20]
             gray = cv2.cvtColor(search_scope, cv2.COLOR_BGR2GRAY)
             _, binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
-            white_ratio = np.count_nonzero(binary) / binary.size
-            return white_ratio < 0.2
+            return (np.count_nonzero(binary) / binary.size) < 0.2
         except:
             return False
 
@@ -335,7 +434,7 @@ class Matrixassistant:
     def start_thread(self):
         if not all(
             self.data.get(k) is not None for k in ["roi", "grid", "lock", "matrix_size"]): messagebox.showwarning(
-            "提示", "首次运行请先点击四个按钮完成配置"); return
+            "提示", "首次运行请完成配置"); return
         self.save_config();
         self.corrections = self.load_corrections();
         self.log_area.delete('1.0', tk.END);
@@ -449,14 +548,13 @@ class Matrixassistant:
                 pi = Image.open(img_path);
                 pi.thumbnail((700, 500));
                 tki = ImageTk.PhotoImage(pi)
-                pos_x = primary_mon['left'] + (primary_mon['width'] - pi.width) // 2
+                pos_x = pos_x = primary_mon['left'] + (primary_mon['width'] - pi.width) // 2
                 pos_y = primary_mon['top'] + (primary_mon['height'] - pi.height) // 2
                 img_w.geometry(f"{pi.width}x{pi.height}+{pos_x}+{pos_y}")
                 tk.Label(img_w, image=tki, bg="white", relief="solid", bd=2).pack();
                 img_w.image = tki
                 self.root.after(50, lambda: img_w.lift())
 
-                # --- 需求实现：3秒后自动销毁教程图 ---
                 def safe_close_img():
                     if img_w and img_w.winfo_exists(): img_w.destroy()
 
@@ -472,40 +570,37 @@ class Matrixassistant:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("毕业基质自动识别工具beta v1.5 -by洁柔厨")
-        self.root.geometry("540x880")
+        self.root.title("毕业基质自动识别工具beta v1.7 -by洁柔厨")
+        self.root.geometry("540x880");
         self.root.attributes("-topmost", True)
-
-        # --- 核心修复：任务栏图标独立化 ---
         try:
-            # 必须在加载图标前调用，确保 Windows 不会把程序归类到 Python 默认图标下
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("jierouchu.matrix.assistant.v15")
+            myappid = 'jierouchu.matrix.assistant.v17'
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except:
             pass
-
-        # --- 核心修复：使用 iconphoto 代替 iconbitmap ---
         icon_path = resource_path(os.path.join("img", "jizhi.ico"))
         if os.path.exists(icon_path):
             try:
-                # 使用 Pillow 加载图标，兼容性更好
-                img = Image.open(icon_path)
+                img = Image.open(icon_path);
                 self.tk_icon = ImageTk.PhotoImage(img)
-                # 设置左上角和任务栏图标
                 self.root.iconphoto(True, self.tk_icon)
-            except Exception as e:
-                print(f"图标加载失败: {e}")
-        if os.path.exists(icon_path):
-            self.root.iconbitmap(icon_path)
+            except:
+                pass
+
         self.config_file, self.csv_file, self.corrections_file = "config.json", "weapon_data.csv", "Jiucuo.json"
         try:
-            self.ocr = RapidOCR(intra_op_num_threads=4);
-            self.cc = OpenCC('t2s')
+            self.ocr = RapidOCR(intra_op_num_threads=4); self.cc = OpenCC('t2s')
         except Exception as e:
             messagebox.showerror("初始化失败", str(e))
+
         self.running = False;
         self.data = self.load_config();
         self.weapon_list = self.load_weapon_csv();
         self.corrections = self.load_corrections()
+
+        # --- UI 颜色定义 ---
+        MUTED_RED = "#B71C1C"  # 低饱和度红色
+
         header = tk.Frame(root);
         header.pack(anchor="nw", padx=10, pady=5, fill="x")
         lf = tk.Frame(header);
@@ -515,43 +610,55 @@ class Matrixassistant:
         tk.Label(lf, textvariable=self.top_status_var, font=("微软雅黑", 9), fg="green").pack(anchor="w")
         tk.Button(lf, text="添加错字纠正", command=self.add_correction_popup, font=("微软雅黑", 8), bg="#F5F5F5",
                   padx=2, pady=0).pack(anchor="w", pady=(2, 0))
-        tk.Button(lf, text="添加武器数据", command=self.add_weapon_popup, font=("微软雅黑", 8), bg="#F5F5F5", padx=2,
+        tk.Button(lf, text="修改武器数据", command=self.edit_weapon_popup, font=("微软雅黑", 8), bg="#F5F5F5", padx=2,
                   pady=0).pack(anchor="w", pady=(2, 0))
         self.debug_gold_var = tk.BooleanVar(value=False);
         tk.Checkbutton(lf, text="关闭金色识别", variable=self.debug_gold_var, font=("微软雅黑", 8)).pack(anchor="w",
                                                                                                          pady=(2, 0))
+
+        # --- 修改：rf 设置 padx 增加间距使按钮右移 ---
         rf = tk.Frame(header);
-        rf.pack(side="left", anchor="nw", padx=(10, 0))
+        rf.pack(side="left", anchor="nw", padx=(35, 0))
         r1 = tk.Frame(rf);
         r1.pack(anchor="w")
-        tk.Label(r1, text=" | 速度:").pack(side="left")
+        tk.Label(r1, text="| 速度:").pack(side="left")
         self.speed_var = tk.StringVar(value=self.data.get("speed", "0.2"));
-        tk.Entry(r1, textvariable=self.speed_var, width=5).pack(side="left", padx=2)
+        tk.Entry(r1, textvariable=self.speed_var, width=5).pack(side="left", padx=0)
         tk.Label(r1, text=" | 翻页距离:").pack(side="left")
         self.dist_var = tk.StringVar(value=self.data.get("scroll_pixel_dist", "90"));
-        tk.Entry(r1, textvariable=self.dist_var, width=5).pack(side="left", padx=2)
+        tk.Entry(r1, textvariable=self.dist_var, width=5).pack(side="left", padx=0)
         r2 = tk.Frame(rf);
         r2.pack(anchor="w", pady=(2, 0))
-        tk.Label(r2, text="推荐 0.2-0.5", font=("微软雅黑", 8), fg="#888888").pack(side="left", padx=(15, 0))
-        tk.Label(r2, text="1080p推荐90 2k推荐140", font=("微软雅黑", 8), fg="#888888").pack(side="left", padx=(13, 0))
+        tk.Label(r2, text="推荐 0.2-0.5", font=("微软雅黑", 8), fg="#888888").pack(side="left", padx=(0, 0))
+        tk.Label(r2, text="1080p推荐90 2k推荐140", font=("微软雅黑", 8), fg="#888888").pack(side="left", padx=(5, 0))
         self.run_btn = tk.Button(rf, text="▶ 开始自动扫描", command=self.start_thread, bg="#2E7D32", fg="white",
-                                 font=("微软雅黑", 12, "bold"), width=15, height=1);
-        self.run_btn.pack(anchor="center", pady=(10, 0))
+                                 font=("微软雅黑", 12, "bold"), width=15, height=1)
+        self.run_btn.pack(anchor="center", pady=(5, 0))
+
+        # --- 修改：使用低饱和度红色 ---
+        tk.Label(rf, text="（开始扫描后，按 'B' 键可停止）", font=("微软雅黑", 9), fg=MUTED_RED).pack(
+            anchor="center")
+
         mid = tk.Frame(root);
         mid.pack(pady=5)
         tk.Button(mid, text="基质框选", command=self.set_matrix_roi, width=12).grid(row=0, column=0, padx=5, pady=5)
         tk.Button(mid, text="框选识别区", command=self.set_roi, width=12).grid(row=0, column=1, padx=5, pady=5)
         tk.Button(mid, text="校准网格", command=self.set_grid, width=12).grid(row=1, column=0, padx=5, pady=5)
         tk.Button(mid, text="校准锁定键", command=self.set_lock, width=12).grid(row=1, column=1, padx=5, pady=5)
+
+        tk.Label(root, text="实时日志:", font=("微软雅黑", 11, "bold")).pack(anchor="w", padx=10)
         self.log_area = scrolledtext.ScrolledText(root, height=10, width=60, font=("微软雅黑", 12));
         self.log_area.pack(padx=10, pady=5)
-        for t, c in [("black", "black"), ("green", "#2E7D32"), ("gold", "#FF9800"), ("red", "red"),
+        for t, c in [("black", "black"), ("green", "#2E7D32"), ("gold", "#FF9800"), ("red", "#B71C1C"),
                      ("blue", "blue")]: self.log_area.tag_config(t, foreground=c)
-        tk.Label(root, text="已锁定列表:", font=("微软雅黑", 11, "bold")).pack(anchor="w", padx=10)
+
+        # --- 修改：已锁定列表标题设为低饱和度红色 ---
+        tk.Label(root, text="已锁定列表:", font=("微软雅黑", 11, "bold"), fg=MUTED_RED).pack(anchor="w", padx=10)
         self.lock_list_area = scrolledtext.ScrolledText(root, height=8, width=60, font=("微软雅黑", 12), bg="#F9F9F9");
         self.lock_list_area.pack(padx=10, pady=5, fill="x")
-        for t, c in [("red_text", "red"), ("gold_text", "#FF9800"), ("green_text", "#2E7D32"),
+        for t, c in [("red_text", "#B71C1C"), ("gold_text", "#FF9800"), ("green_text", "#2E7D32"),
                      ("black_text", "black")]: self.lock_list_area.tag_config(t, foreground=c)
+
         self.kb = keyboard.Listener(on_press=self.on_press);
         self.kb.start()
         tk.Label(root, text="群号: 1006580737\n本工具完全免费", font=("微软雅黑", 9, "bold"), fg="#FF5722",
