@@ -26,6 +26,14 @@ import win32ui
 import win32con
 
 
+# --- PyInstaller 路径适配函数 ---
+def resource_path(relative_path):
+    """ 获取资源绝对路径，适配 PyInstaller 的临时文件夹机制 """
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+
 # --- 跨屏幕坐标修复 ---
 class RECT(ctypes.Structure):
     _fields_ = [("left", ctypes.c_int), ("top", ctypes.c_int),
@@ -61,24 +69,21 @@ class SelectionCanvas:
     def __init__(self, root, img_name, callback):
         self.root = root
         self.callback = callback
-        # 获取所有显示器的联合区域（虚拟屏幕）用于蒙版覆盖
         self.mon = mss.mss().monitors[0]
-        # 获取主显示器用于图片居中显示
         self.primary_mon = mss.mss().monitors[1] if len(mss.mss().monitors) > 1 else self.mon
 
-        # 1. 创建全屏蒙版 (半透明)
+        # 1. 创建全屏蒙版
         self.top = tk.Toplevel(root)
         self.top.attributes("-alpha", 0.6, "-topmost", True)
-        # 几何设置：宽度x高度+左偏移+上偏移
         self.top.geometry(f"{self.mon['width']}x{self.mon['height']}+{self.mon['left']}+{self.mon['top']}")
         self.top.overrideredirect(True)
         self.top.configure(bg="white")
         self.canvas = tk.Canvas(self.top, cursor="crosshair", bg="white", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
-        # 2. 创建独立教程图 (修复坐标偏移)
+        # 2. 创建独立教程图
         self.img_win = None
-        img_path = os.path.join("img", img_name)
+        img_path = resource_path(os.path.join("img", img_name))
         if os.path.exists(img_path):
             self.img_win = tk.Toplevel(root)
             self.img_win.attributes("-topmost", True)
@@ -87,16 +92,16 @@ class SelectionCanvas:
             img.thumbnail((700, 500))
             self.tk_img = ImageTk.PhotoImage(img)
 
-            # --- 核心修复：使用主显示器坐标来居中图片 ---
-            # 使用 primary_mon 而非虚拟屏幕 mon，确保图片在主显示器上居中
             pos_x = self.primary_mon['left'] + (self.primary_mon['width'] - img.width) // 2
             pos_y = self.primary_mon['top'] + (self.primary_mon['height'] - img.height) // 2
 
             self.img_win.geometry(f"{img.width}x{img.height}+{pos_x}+{pos_y}")
             tk.Label(self.img_win, image=self.tk_img, bg="white", relief="solid", bd=2).pack()
-            # 强制刷新并提升层级
             self.img_win.update_idletasks()
             self.root.after(50, lambda: self.img_win.lift() if self.img_win else None)
+
+            # --- 需求实现：3秒后自动销毁教程图 ---
+            self.root.after(3000, self.safe_destroy_img)
 
         self.start_x = self.start_y = self.rect = None
         self.canvas.bind("<ButtonPress-1>", self.on_press)
@@ -105,11 +110,13 @@ class SelectionCanvas:
         self.canvas.bind("<Button-3>", lambda e: self.close())
         self.top.bind("<Escape>", lambda e: self.close())
 
-    def on_press(self, event):
-        # 用户点击即表示准备框选，立即销毁教程图，防止遮挡
+    def safe_destroy_img(self):
         if self.img_win and self.img_win.winfo_exists():
             self.img_win.destroy()
             self.img_win = None
+
+    def on_press(self, event):
+        self.safe_destroy_img()
         self.start_x, self.start_y = event.x, event.y
         self.rect = self.canvas.create_rectangle(self.start_x, self.start_y, event.x, event.y, outline="blue", width=4)
 
@@ -120,12 +127,11 @@ class SelectionCanvas:
         x1, x2, y1, y2 = min(self.start_x, event.x), max(self.start_x, event.x), min(self.start_y, event.y), max(
             self.start_y, event.y)
         self.close()
-        # 将相对于蒙版左上角的局部坐标还原为屏幕全局坐标
         if (x2 - x1) > 10 and (y2 - y1) > 10:
             self.callback(x1 + self.mon['left'], y1 + self.mon['top'], x2 - x1, y2 - y1)
 
     def close(self):
-        if self.img_win and self.img_win.winfo_exists(): self.img_win.destroy()
+        self.safe_destroy_img()
         if self.top.winfo_exists(): self.top.destroy()
 
 
@@ -136,8 +142,7 @@ class Matrixassistant:
                 return json.load(open(self.config_file, 'r', encoding='utf-8'))
             except:
                 pass
-        return {"roi": None, "grid": None, "lock": None, "matrix_size": None, "speed": "0.3",
-                "scroll_pixel_dist": "200"}
+        return {"roi": None, "grid": None, "lock": None, "matrix_size": None, "speed": "0.2", "scroll_pixel_dist": "90"}
 
     def load_corrections(self):
         return json.load(open(self.corrections_file, 'r', encoding='utf-8')) if os.path.exists(
@@ -145,10 +150,27 @@ class Matrixassistant:
 
     def load_weapon_csv(self):
         ws = []
-        if os.path.exists(self.csv_file):
+        # 1. 首先检测文件是否存在
+        if not os.path.exists(self.csv_file):
+            # 如果不存在，弹出警告框
+            messagebox.showwarning("缺少必要文件",
+                                   f"未检测到武器文件：{self.csv_file}\n请解压后运行，确保该文件位于程序根目录下，否则无法识别武器词条！")
+            return ws  # 返回空列表防止后续代码报错
+
+        # 2. 如果存在，正常读取
+        try:
             with open(self.csv_file, 'r', encoding='utf-8-sig') as f:
-                r = csv.DictReader(f);
-                [ws.append({k.strip(): v.strip() for k, v in row.items() if k}) for row in r]
+                r = csv.DictReader(f)
+                # 简单的格式校验：检查是否有“武器”这一列
+                if r.fieldnames and "武器" in r.fieldnames:
+                    for row in r:
+                        ws.append({k.strip(): v.strip() for k, v in row.items() if k})
+                else:
+                    messagebox.showerror("文件格式错误",
+                                         f"{self.csv_file} 格式不正确，请确保包含“武器、星级、毕业词条”等表头。")
+        except Exception as e:
+            messagebox.showerror("读取失败", f"读取CSV时发生错误: {e}")
+
         return ws
 
     def update_config_status(self):
@@ -160,10 +182,9 @@ class Matrixassistant:
             self.data.update({"speed": self.speed_var.get(), "scroll_pixel_dist": self.dist_var.get()})
         except:
             pass
-        json.dump(self.data, open(self.config_file, 'w', encoding='utf-8'), ensure_ascii=False, indent=4);
+        json.dump(self.data, open(self.config_file, 'w', encoding='utf-8'), ensure_ascii=False, indent=4)
         self.update_config_status()
 
-    # --- 按钮校准函数 ---
     def set_matrix_roi(self):
         SelectionCanvas(self.root, "guide_matrix.png",
                         lambda x, y, w, h: [self.data.update({"matrix_size": (w, h)}), self.save_config()])
@@ -174,14 +195,23 @@ class Matrixassistant:
             self.save_config()])
 
     def set_grid(self):
-        def p3(rx, ry): gx, gy = self.get_game_rect(); p11 = self.data["grid"]["p11"]; self.data["grid"].update(
-            {"rx": p11[0] - gx, "ry": p11[1] - gy, "rdx": self.data["grid"]["p12"][0] - p11[0],
-             "rdy": ry - p11[1]}); self.save_config()
+        def p3(rx, ry):
+            gx, gy = self.get_game_rect()
+            p11 = self.data["grid"]["p11"]
+            self.data["grid"].update(
+                {"rx": p11[0] - gx, "ry": p11[1] - gy, "rdx": self.data["grid"]["p12"][0] - p11[0], "rdy": ry - p11[1]})
+            self.save_config()
 
-        def p2(rx, ry): self.data["grid"]["p12"] = (rx, ry); self.get_click("点：(2, 1)中心", p3, "guide_grid.png")
+        # --- 需求实现：后续点击不再传入图片名称 ---
+        def p2(rx, ry):
+            self.data["grid"]["p12"] = (rx, ry)
+            self.get_click("点：(2, 1)中心", p3, None)
 
-        def p1(rx, ry): self.data["grid"] = {"p11": (rx, ry)}; self.get_click("点：(1, 2)中心", p2, "guide_grid.png")
+        def p1(rx, ry):
+            self.data["grid"] = {"p11": (rx, ry)}
+            self.get_click("点：(1, 2)中心", p2, None)
 
+        # 仅在第一次调用时显示图片
         self.get_click("点：(1, 1)中心", p1, "guide_grid.png")
 
     def set_lock(self):
@@ -202,14 +232,10 @@ class Matrixassistant:
         def confirm():
             n, s = ents["name"].get().strip(), ents["star"].get().strip()
             c = [ents[x].get().strip() for x in ["c1", "c2", "c3"]]
-            if not n or s not in ["5", "6"] or not c[0]: messagebox.showwarning("提示", "必填项缺失"); return
+            if not n or s not in ["5", "6"] or not c[0]: messagebox.showwarning("提示", "只能填入数字5或6"); return
             new = {"武器": n, "星级": f"{s}星", "毕业词条1": c[0], "毕业词条2": c[1], "毕业词条3": c[2]}
-            with open(self.csv_file, 'a', encoding='utf-8-sig', newline='') as f: csv.DictWriter(f, fieldnames=["武器",
-                                                                                                                "星级",
-                                                                                                                "毕业词条1",
-                                                                                                                "毕业词条2",
-                                                                                                                "毕业词条3"]).writerow(
-                new)
+            with open(self.csv_file, 'a', encoding='utf-8-sig', newline='') as f:
+                csv.DictWriter(f, fieldnames=["武器", "星级", "毕业词条1", "毕业词条2", "毕业词条3"]).writerow(new)
             self.weapon_list.append(new);
             messagebox.showinfo("成功", f"武器 {n} 已添加");
             p.destroy()
@@ -237,7 +263,6 @@ class Matrixassistant:
         tk.Button(p, text="确认添加", command=confirm, bg="#2E7D32", fg="white", width=15).grid(row=2, column=0,
                                                                                                 columnspan=2, pady=20)
 
-    # --- 核心识别引擎 ---
     def capture_window_bg(self, hwnd):
         try:
             l, t, r, b = win32gui.GetClientRect(hwnd);
@@ -247,7 +272,7 @@ class Matrixassistant:
             sDC = mDC.CreateCompatibleDC();
             sBM = win32ui.CreateBitmap()
             sBM.CreateCompatibleBitmap(mDC, w, h);
-            sDC.SelectObject(sBM);
+            sDC.SelectObject(sBM)
             ctypes.windll.user32.PrintWindow(hwnd, sDC.GetSafeHdc(), 2)
             bits = sBM.GetBitmapBits(True);
             img = np.frombuffer(bits, dtype='uint8');
@@ -263,14 +288,11 @@ class Matrixassistant:
     def is_already_locked_bg(self, window_img, lock_pos):
         try:
             lx, ly = int(lock_pos[0]), int(lock_pos[1])
-            search_scope = window_img[max(0, ly - 35):ly + 35, max(0, lx - 35):lx + 35]
-            t_p = os.path.join("img", "unlocked.png")
-            if os.path.exists(t_p):
-                template = cv2.imread(t_p)
-                if template is not None:
-                    res = cv2.matchTemplate(search_scope, template, cv2.TM_CCOEFF_NORMED)
-                    if cv2.minMaxLoc(res)[1] > 0.75: return False
-            return np.mean(cv2.cvtColor(search_scope, cv2.COLOR_BGR2GRAY)) < 170
+            search_scope = window_img[max(0, ly - 20):ly + 20, max(0, lx - 20):lx + 20]
+            gray = cv2.cvtColor(search_scope, cv2.COLOR_BGR2GRAY)
+            _, binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+            white_ratio = np.count_nonzero(binary) / binary.size
+            return white_ratio < 0.2
         except:
             return False
 
@@ -295,11 +317,9 @@ class Matrixassistant:
                 r = difflib.SequenceMatcher(None, t_c, p.replace("提升", "")).ratio()
                 if r > best_r: best_r, b_idx = r, i
             if best_r >= 0.85:
-                h_hits += 1;
-                m_idx.add(b_idx)
+                h_hits += 1; m_idx.add(b_idx)
             elif best_r >= 0.6:
-                p_hits += 1;
-                m_idx.add(b_idx)
+                p_hits += 1; m_idx.add(b_idx)
         return (h_hits == len(ts)) or (h_hits >= len(ts) - 1 and (h_hits + p_hits) >= len(ts))
 
     def is_gold(self, bgr):
@@ -312,11 +332,10 @@ class Matrixassistant:
         except:
             return False
 
-    # --- 扫描主逻辑 ---
     def start_thread(self):
         if not all(
-                self.data.get(k) is not None for k in ["roi", "grid", "lock", "matrix_size"]): messagebox.showwarning(
-            "提示", "配置未完成"); return
+            self.data.get(k) is not None for k in ["roi", "grid", "lock", "matrix_size"]): messagebox.showwarning(
+            "提示", "首次运行请先点击四个按钮完成配置"); return
         self.save_config();
         self.corrections = self.load_corrections();
         self.log_area.delete('1.0', tk.END);
@@ -360,18 +379,15 @@ class Matrixassistant:
                                 if self.is_already_locked_bg(scr, lock):
                                     self.gui_log("该基质已锁定，跳过", "red")
                                 else:
-                                    # 单次点击动作，绝不重试，避免循环解锁
                                     pydirectinput.click(int(wr[0] + lock[0]), int(wr[1] + lock[1]))
-                                    self.gui_log("-> 已执行锁定指令", "blue")
-                                    time.sleep(0.4)
+                                    self.gui_log("-> 已执行锁定指令", "blue");
+                                    time.sleep(0.4);
                                     pydirectinput.moveRel(50, 50)
                                 self.add_to_lock_list(matches, f"{curr_row + 1}-{c + 1}")
                         else:
                             self.gui_log("-> 未读到词条")
                     else:
-                        self.gui_log(f"非金色基质，停止扫描");
-                        self.running = False;
-                        break
+                        self.gui_log(f"非金色基质，停止扫描"); self.running = False; break
                 if not self.running: break
                 if curr_row >= 4:
                     self.gui_log(f"[翻页] 向上滑动 {dist} 像素...", "black");
@@ -389,7 +405,6 @@ class Matrixassistant:
         finally:
             self.root.after(0, lambda: self.run_btn.config(state="normal", text="▶ 开始自动扫描"))
 
-    # --- 工具方法 ---
     def gui_log(self, m, tag="black"):
         self.log_area.insert(tk.END, m + "\n", tag);
         self.log_area.see(tk.END)
@@ -398,7 +413,7 @@ class Matrixassistant:
         for w in ms: self.lock_list_area.insert(tk.END, f"{w.get('武器', '未知')} ",
                                                 "red_text" if "6" in w.get('星级', '6') else "gold_text")
         self.lock_list_area.insert(tk.END, " " + "，".join(
-            [ms[0].get(f'毕业词条{i}', '') for i in range(1, 4) if ms[0].get(f'毕业词条{i}', '')]) + " ", "green_text");
+            [ms[0].get(f'毕业词条{i}', '') for i in range(1, 4) if ms[0].get(f'毕业词条{i}', '')]) + " ", "green_text")
         self.lock_list_area.insert(tk.END, "坐标" + p + "\n", "black_text");
         self.lock_list_area.see(tk.END)
 
@@ -416,40 +431,39 @@ class Matrixassistant:
         except:
             return None
 
-    # --- 修复后的独立图层置顶方法 ---
     def get_click(self, p, cb, img_n=None):
         mon = mss.mss().monitors[0]
-        # 获取主显示器用于图片居中显示
         primary_mon = mss.mss().monitors[1] if len(mss.mss().monitors) > 1 else mon
-        # 1. 蒙版窗口
-        ov = tk.Toplevel(self.root)
+        ov = tk.Toplevel(self.root);
         ov.attributes("-alpha", 0.6, "-topmost", True)
-        ov.geometry(f"{mon['width']}x{mon['height']}+{mon['left']}+{mon['top']}")
+        ov.geometry(f"{mon['width']}x{mon['height']}+{mon['left']}+{mon['top']}");
         ov.overrideredirect(True);
         ov.configure(bg="white")
-
-        # 2. 图片独立窗口 (100% 不透明)
         img_w = None
-        if img_n and os.path.exists(os.path.join("img", img_n)):
-            img_w = tk.Toplevel(self.root)
-            img_w.attributes("-topmost", True);
-            img_w.overrideredirect(True)
-            pi = Image.open(os.path.join("img", img_n));
-            pi.thumbnail((700, 500))
-            tki = ImageTk.PhotoImage(pi)
+        if img_n:
+            img_path = resource_path(os.path.join("img", img_n))
+            if os.path.exists(img_path):
+                img_w = tk.Toplevel(self.root);
+                img_w.attributes("-topmost", True);
+                img_w.overrideredirect(True)
+                pi = Image.open(img_path);
+                pi.thumbnail((700, 500));
+                tki = ImageTk.PhotoImage(pi)
+                pos_x = primary_mon['left'] + (primary_mon['width'] - pi.width) // 2
+                pos_y = primary_mon['top'] + (primary_mon['height'] - pi.height) // 2
+                img_w.geometry(f"{pi.width}x{pi.height}+{pos_x}+{pos_y}")
+                tk.Label(img_w, image=tki, bg="white", relief="solid", bd=2).pack();
+                img_w.image = tki
+                self.root.after(50, lambda: img_w.lift())
 
-            # 修复：使用主显示器坐标来居中图片
-            pos_x = primary_mon['left'] + (primary_mon['width'] - pi.width) // 2
-            pos_y = primary_mon['top'] + (primary_mon['height'] - pi.height) // 2
-            img_w.geometry(f"{pi.width}x{pi.height}+{pos_x}+{pos_y}")
+                # --- 需求实现：3秒后自动销毁教程图 ---
+                def safe_close_img():
+                    if img_w and img_w.winfo_exists(): img_w.destroy()
 
-            tk.Label(img_w, image=tki, bg="white", relief="solid", bd=2).pack()
-            img_w.image = tki
-            # 延迟提升层级确保压在蒙版上
-            self.root.after(50, lambda: img_w.lift())
+                self.root.after(3000, safe_close_img)
 
         def onc(e):
-            if img_w: img_w.destroy()
+            if img_w and img_w.winfo_exists(): img_w.destroy()
             ov.destroy();
             cb(e.x_root, e.y_root)
 
@@ -458,9 +472,30 @@ class Matrixassistant:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("毕业基质自动识别工具beta v1.2 -by洁柔厨")
-        self.root.geometry("540x880");
+        self.root.title("毕业基质自动识别工具beta v1.5 -by洁柔厨")
+        self.root.geometry("540x880")
         self.root.attributes("-topmost", True)
+
+        # --- 核心修复：任务栏图标独立化 ---
+        try:
+            # 必须在加载图标前调用，确保 Windows 不会把程序归类到 Python 默认图标下
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("jierouchu.matrix.assistant.v15")
+        except:
+            pass
+
+        # --- 核心修复：使用 iconphoto 代替 iconbitmap ---
+        icon_path = resource_path(os.path.join("img", "jizhi.ico"))
+        if os.path.exists(icon_path):
+            try:
+                # 使用 Pillow 加载图标，兼容性更好
+                img = Image.open(icon_path)
+                self.tk_icon = ImageTk.PhotoImage(img)
+                # 设置左上角和任务栏图标
+                self.root.iconphoto(True, self.tk_icon)
+            except Exception as e:
+                print(f"图标加载失败: {e}")
+        if os.path.exists(icon_path):
+            self.root.iconbitmap(icon_path)
         self.config_file, self.csv_file, self.corrections_file = "config.json", "weapon_data.csv", "Jiucuo.json"
         try:
             self.ocr = RapidOCR(intra_op_num_threads=4);
@@ -471,8 +506,6 @@ class Matrixassistant:
         self.data = self.load_config();
         self.weapon_list = self.load_weapon_csv();
         self.corrections = self.load_corrections()
-
-        # UI 双分栏
         header = tk.Frame(root);
         header.pack(anchor="nw", padx=10, pady=5, fill="x")
         lf = tk.Frame(header);
@@ -487,32 +520,29 @@ class Matrixassistant:
         self.debug_gold_var = tk.BooleanVar(value=False);
         tk.Checkbutton(lf, text="关闭金色识别", variable=self.debug_gold_var, font=("微软雅黑", 8)).pack(anchor="w",
                                                                                                          pady=(2, 0))
-
         rf = tk.Frame(header);
         rf.pack(side="left", anchor="nw", padx=(10, 0))
         r1 = tk.Frame(rf);
         r1.pack(anchor="w")
         tk.Label(r1, text=" | 速度:").pack(side="left")
-        self.speed_var = tk.StringVar(value=self.data.get("speed", "0.3"));
+        self.speed_var = tk.StringVar(value=self.data.get("speed", "0.2"));
         tk.Entry(r1, textvariable=self.speed_var, width=5).pack(side="left", padx=2)
-        tk.Label(r1, text=" | 滑动:").pack(side="left")
-        self.dist_var = tk.StringVar(value=self.data.get("scroll_pixel_dist", "200"));
+        tk.Label(r1, text=" | 翻页距离:").pack(side="left")
+        self.dist_var = tk.StringVar(value=self.data.get("scroll_pixel_dist", "90"));
         tk.Entry(r1, textvariable=self.dist_var, width=5).pack(side="left", padx=2)
         r2 = tk.Frame(rf);
         r2.pack(anchor="w", pady=(2, 0))
         tk.Label(r2, text="推荐 0.2-0.5", font=("微软雅黑", 8), fg="#888888").pack(side="left", padx=(15, 0))
-        tk.Label(r2, text="1080p推荐110 2k推荐140", font=("微软雅黑", 8), fg="#888888").pack(side="left", padx=(13, 0))
+        tk.Label(r2, text="1080p推荐90 2k推荐140", font=("微软雅黑", 8), fg="#888888").pack(side="left", padx=(13, 0))
         self.run_btn = tk.Button(rf, text="▶ 开始自动扫描", command=self.start_thread, bg="#2E7D32", fg="white",
                                  font=("微软雅黑", 12, "bold"), width=15, height=1);
         self.run_btn.pack(anchor="center", pady=(10, 0))
-
         mid = tk.Frame(root);
         mid.pack(pady=5)
         tk.Button(mid, text="基质框选", command=self.set_matrix_roi, width=12).grid(row=0, column=0, padx=5, pady=5)
         tk.Button(mid, text="框选识别区", command=self.set_roi, width=12).grid(row=0, column=1, padx=5, pady=5)
         tk.Button(mid, text="校准网格", command=self.set_grid, width=12).grid(row=1, column=0, padx=5, pady=5)
         tk.Button(mid, text="校准锁定键", command=self.set_lock, width=12).grid(row=1, column=1, padx=5, pady=5)
-
         self.log_area = scrolledtext.ScrolledText(root, height=10, width=60, font=("微软雅黑", 12));
         self.log_area.pack(padx=10, pady=5)
         for t, c in [("black", "black"), ("green", "#2E7D32"), ("gold", "#FF9800"), ("red", "red"),
